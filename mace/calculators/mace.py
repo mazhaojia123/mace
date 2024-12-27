@@ -66,6 +66,7 @@ class MACECalculator(Calculator):
         **kwargs,
     ):
         Calculator.__init__(self, **kwargs)
+        self.device = device
         if enable_cueq:
             assert model_type == "MACE", "CuEq only supports MACE models"
             compile_mode = None
@@ -278,6 +279,7 @@ class MACECalculator(Calculator):
         """
         # call to base-class to set atoms attribute
         Calculator.calculate(self, atoms)
+        # print(f'@@@File: {__file__}, atoms.arrays.position: {atoms.arrays["positions"]}')
 
         batch_base = self._atoms_to_batch(atoms)
 
@@ -288,6 +290,7 @@ class MACECalculator(Calculator):
             node_e0 = self.models[0].atomic_energies_fn(batch["node_attrs"])[
                 num_atoms_arange, node_heads
             ]
+            # print(f'@@@File: {__file__}, node_e0: {node_e0.cpu().numpy()}')
             compute_stress = not self.use_compile
         else:
             compute_stress = False
@@ -297,11 +300,13 @@ class MACECalculator(Calculator):
         )
         for i, model in enumerate(self.models):
             batch = self._clone_batch(batch_base)
+            # print(f'@@@File: {__file__}, batch.to_dict(): {batch.to_dict()}')
             out = model(
                 batch.to_dict(),
                 compute_stress=compute_stress,
                 training=self.use_compile,
             )
+            # print(f'@@@File: {__file__}, out: {out}')
             if self.model_type in ["MACE", "EnergyDipoleMACE"]:
                 ret_tensors["energies"][i] = out["energy"].detach()
                 ret_tensors["node_energy"][i] = (out["node_energy"] - node_e0).detach()
@@ -433,3 +438,26 @@ class MACECalculator(Calculator):
         if self.num_models == 1:
             return descriptors[0]
         return descriptors
+
+    def predict(self, data_loader):
+        """
+        Calculate properties for a batch of atoms.
+        :param data_loader: DataLoader object
+        :return: dict with 'energy' and 'forces'
+        """
+        for model in self.models:
+            model.eval()
+        predictions = {'energy': [], 'forces': []}
+
+        batch = data_loader
+
+        out = self.models[0](
+            batch.to_dict(),
+            # compute_stress=compute_stress,
+            compute_stress=False, # TODO: DO WE NEED TO COMPUTE STRESS?
+            training=self.use_compile,
+        )
+        predictions["energy"] = out["energy"].unsqueeze(-1).detach()
+        predictions["forces"] = out["forces"].detach()
+
+        return predictions
