@@ -22,7 +22,17 @@ from mace.modules.utils import extract_invariant
 from mace.tools import torch_geometric, torch_tools, utils
 from mace.tools.compile import prepare
 from mace.tools.scripts_utils import extract_model
+import random
 
+# def set_seed(seed: int):
+#     random.seed(seed)          # Python's built-in random module
+#     np.random.seed(seed)       # NumPy
+#     torch.manual_seed(seed)    # PyTorch (CPU and CUDA)
+#     torch.cuda.manual_seed(seed)
+#     torch.cuda.manual_seed_all(seed)  # If using multi-GPU
+#     torch.backends.cudnn.deterministic = True  # Ensures reproducibility
+#     torch.backends.cudnn.benchmark = False     # Ensures deterministic behavior
+#     torch.use_deterministic_algorithms(True)
 
 def get_model_dtype(model: torch.nn.Module) -> torch.dtype:
     """Get the dtype of the model"""
@@ -301,11 +311,21 @@ class MACECalculator(Calculator):
         for i, model in enumerate(self.models):
             batch = self._clone_batch(batch_base)
             # print(f'@@@File: {__file__}, batch.to_dict(): {batch.to_dict()}')
+            # set_seed(0)
             out = model(
                 batch.to_dict(),
                 compute_stress=compute_stress,
                 training=self.use_compile,
             )
+            # print(f'&&& batch.positions: {batch["positions"]}')
+            # print(f'&&& batch.cell: {batch["cell"]}')
+            # print(f'&&& batch.stress: {batch["stress"]}')
+            # print(f'compute_stress: {compute_stress}')
+            # for k,v in batch.to_dict().items():
+            #     print(f'&&& batch.to_dict(): {k} {v}')
+            # print("=======")
+            # print(f'&&& out["forces"]: {out["forces"]}')
+            # print(f'&&& training: {self.use_compile}')
             # print(f'@@@File: {__file__}, out: {out}')
             if self.model_type in ["MACE", "EnergyDipoleMACE"]:
                 ret_tensors["energies"][i] = out["energy"].detach()
@@ -439,14 +459,14 @@ class MACECalculator(Calculator):
             return descriptors[0]
         return descriptors
 
-    def predict(self, data_loader):
+    def predict_bk(self, data_loader):
         """
         Calculate properties for a batch of atoms.
         :param data_loader: DataLoader object
         :return: dict with 'energy' and 'forces'
         """
-        for model in self.models:
-            model.eval()
+        # for model in self.models:
+        #     model.eval()
         predictions = {'energy': [], 'forces': []}
 
         batch = data_loader
@@ -454,10 +474,56 @@ class MACECalculator(Calculator):
         out = self.models[0](
             batch.to_dict(),
             # compute_stress=compute_stress,
-            compute_stress=False, # TODO: DO WE NEED TO COMPUTE STRESS?
+            # compute_stress=False, # TODO: DO WE NEED TO COMPUTE STRESS?
+            compute_stress=True, # TODO: DO WE NEED TO COMPUTE STRESS?
             training=self.use_compile,
         )
+        # print(f'&&& batch.positions: {batch["positions"]}')
+        # print(f'&&& batch.cell: {batch["cell"]}')
+        # print(f'&&& batch.stress: {batch["stress"]}')
+        # for k,v in batch.to_dict().items():
+        #     print(f'&&& batch.to_dict(): {k} {v}')
+        # print("=======")
+        # print(f'&&& training: {self.use_compile}')
+        # print(f'&&& out["forces"]: {out["forces"]}')
         predictions["energy"] = out["energy"].unsqueeze(-1).detach()
         predictions["forces"] = out["forces"].detach()
+
+        # print(f'&&& predictions["forces"] in predict: {predictions["forces"]}')
+
+        return predictions
+
+    def predict(self, data_loader):
+        predictions = {'energy': [], 'forces': []}
+
+        batch = data_loader
+
+        # calculate node_e0
+        batch2 = self._clone_batch(batch)
+        node_heads = batch2["head"][batch2["batch"]]
+        num_atoms_arange = torch.arange(batch2["positions"].shape[0])
+        node_e0 = self.models[0].atomic_energies_fn(batch2["node_attrs"])[
+            num_atoms_arange, node_heads
+        ]
+        compute_stress = not self.use_compile
+
+        # set_seed(0)
+        out = self.models[0](
+            batch.to_dict(),
+            compute_stress=compute_stress, # TODO: DO WE NEED TO COMPUTE STRESS?
+            training=self.use_compile,
+        )
+        # print(f'&&& batch.positions: {batch["positions"]}')
+        # print(f'&&& batch.cell: {batch["cell"]}')
+        # print(f'&&& batch.stress: {batch["stress"]}')
+        # for k,v in batch.to_dict().items():
+        #     print(f'&&& batch.to_dict(): {k} {v}')
+        # print("=======")
+        # print(f'&&& out["forces"]: {out["forces"]}')
+        # print(f'&&& training: {self.use_compile}')
+        predictions["energy"] = out["energy"].unsqueeze(-1).detach()
+        predictions["forces"] = out["forces"].detach()
+
+        # print(f'&&& predictions["forces"] in predict: {predictions["forces"]}')
 
         return predictions
