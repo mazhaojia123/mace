@@ -522,7 +522,7 @@ class MACECalculator(Calculator):
 
         return predictions
 
-    def predict(self, atoms_list): 
+    def predict(self, atoms_list, compute_stress=False): 
         predictions = {'energy': [], 'forces': []}
 
         configs = [data.config_from_atoms(atoms, charges_key=self.charges_key) for atoms in atoms_list]
@@ -548,9 +548,6 @@ class MACECalculator(Calculator):
         node_e0 = self.models[0].atomic_energies_fn(batch2["node_attrs"])[
             num_atoms_arange, node_heads
         ]
-        # compute_stress = not self.use_compile
-        # compute_stress = True
-        compute_stress = False
 
         # set_seed(0)
         out = self.models[0](
@@ -568,7 +565,8 @@ class MACECalculator(Calculator):
         # print(f'&&& training: {self.use_compile}')
         predictions["energy"] = out["energy"].unsqueeze(-1).detach()
         predictions["forces"] = out["forces"].detach()
-        # predictions["stress"] = out["stress"].detach()
+        if compute_stress:
+            predictions["stress"] = out["stress"].detach()
 
         # print(f'&&& predictions["forces"] in predict: {predictions["forces"]}')
 
