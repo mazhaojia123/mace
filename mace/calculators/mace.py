@@ -23,6 +23,12 @@ from mace.tools import torch_geometric, torch_tools, utils
 from mace.tools.compile import prepare
 from mace.tools.scripts_utils import extract_model
 import random
+from mace.tools.torch_geometric.batch import Batch
+
+from mace.tools import (
+    atomic_numbers_to_indices,
+    to_one_hot,
+)
 
 
 def get_model_dtype(model: torch.nn.Module) -> torch.dtype:
@@ -469,6 +475,128 @@ class MACECalculator(Calculator):
 
         # get the first batch of data_loader
         batch_base = next(iter(data_loader)).to(self.device)
+
+        # calculate node_e0
+        # batch = self._clone_batch(batch_base)
+        # node_heads = batch["head"][batch["batch"]]
+        # num_atoms_arange = torch.arange(batch["positions"].shape[0])
+        # node_e0 = self.models[0].atomic_energies_fn(batch["node_attrs"])[
+        #     num_atoms_arange, node_heads
+        # ]
+
+        # set_seed(0)
+        out = self.models[0](
+            batch_base.to_dict(),
+            compute_stress=compute_stress, # TODO: DO WE NEED TO COMPUTE STRESS?
+            training=self.use_compile,
+        )
+        # print(f'&&& batch.positions: {batch["positions"]}')
+        # print(f'&&& batch.cell: {batch["cell"]}')
+        # print(f'&&& batch.stress: {batch["stress"]}')
+        # for k,v in batch.to_dict().items():
+        #     print(f'&&& batch.to_dict(): {k} {v}')
+        # print("=======")
+        # print(f'&&& out["forces"]: {out["forces"]}')
+        # print(f'&&& training: {self.use_compile}')
+        predictions["energy"] = out["energy"].unsqueeze(-1).detach()
+        predictions["forces"] = out["forces"].detach()
+        if compute_stress:
+            predictions["stress"] = out["stress"].detach()
+
+        # print(f'&&& predictions["forces"] in predict: {predictions["forces"]}')
+
+        return predictions
+
+    def fast_predict(self, gbatch, compute_stress=False):
+        predictions = {'energy': [], 'forces': []}
+        batch_base = self.convert_batch(gbatch)
+        out = self.models[0](
+            batch_base.to_dict(),
+            compute_stress=compute_stress, # TODO: DO WE NEED TO COMPUTE STRESS?
+            training=self.use_compile,
+        )
+        predictions["energy"] = out["energy"].unsqueeze(-1).detach()
+        predictions["forces"] = out["forces"].detach()
+        if compute_stress:
+            predictions["stress"] = out["stress"].detach()
+
+        return predictions
+
+
+    def convert_batch(self, gbatch): 
+        from fairchem.core.common.utils import radius_graph_pbc
+        edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
+            gbatch,
+            radius=4.5, 
+            max_num_neighbors_threshold=20000000, 
+            pbc=[True, True, True]
+        )
+
+        tmp = edge_indices[0].clone()
+        edge_indices[0] = edge_indices[1]
+        edge_indices[1] = tmp
+
+        # Create a one-hot matrix with number of columns equal to max atomic number + 1
+        indices = atomic_numbers_to_indices(gbatch["atomic_numbers"].to("cpu"), z_table=self.z_table)
+        one_hot = to_one_hot(
+            torch.tensor(indices, dtype=torch.long).unsqueeze(-1),
+            num_classes=len(self.z_table),
+        ).to(self.device)
+
+        cbatch = Batch(
+            positions = gbatch["pos"].clone(),
+            cell = gbatch["cell"].view(-1, 3),
+            batch = gbatch["batch"],
+            ptr = gbatch["ptr"],
+            edge_index = edge_indices,
+            unit_shifts = cell_offsets.to(torch.float64),
+            node_attrs = one_hot,
+        ) 
+
+        return cbatch
+
+
+    def predict_debug(self, atoms_list, gbatch, compute_stress=False): 
+        predictions = {'energy': [], 'forces': []}
+
+        configs = [data.config_from_atoms(atoms, charges_key=self.charges_key) for atoms in atoms_list]
+        data_loader = torch_geometric.dataloader.DataLoader(
+            dataset=[
+                data.AtomicData.from_config(
+                    config, z_table=self.z_table, cutoff=self.r_max, heads=self.heads
+                )
+                for config in configs
+            ],
+            batch_size=len(atoms_list),
+            shuffle=False,
+            drop_last=False,
+        )
+
+        # get the first batch of data_loader
+        # batch_base = next(iter(data_loader)).to(self.device)
+        batch_base_tmp = next(iter(data_loader)).to(self.device)
+        batch2 = self.convert_batch(gbatch)
+        batch_base = Batch(
+            # positions = batch_base_tmp["positions"],
+            positions = batch2["positions"],
+            # node_attrs = batch_base_tmp["node_attrs"], 
+            node_attrs = batch2["node_attrs"], 
+            # cell = batch_base_tmp["cell"],
+            cell = batch2["cell"],
+            edge_index = batch2["edge_index"],
+            unit_shifts = batch2["unit_shifts"],
+            # batch = batch_base_tmp["batch"],
+            batch = batch2["batch"],
+            # ptr = batch_base_tmp["ptr"],
+            ptr = batch2["ptr"],
+        )
+
+        torch.set_printoptions(threshold=float('inf'))
+
+        # print(f'batch2["edge_index"]: {batch2["edge_index"]}')
+        # print(f'batch2["unit_shifts"]: {batch2["unit_shifts"]}')
+        # print(f'batch_base_tmp["edge_index"]: {batch_base_tmp["edge_index"]}')
+        # print(f'batch_base_tmp["unit_shifts"]: {batch_base_tmp["unit_shifts"]}')
 
         # calculate node_e0
         # batch = self._clone_batch(batch_base)
