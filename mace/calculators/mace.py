@@ -315,7 +315,6 @@ class MACECalculator(Calculator):
                 training=self.use_compile,
             )
             # print(f'&&& batch.positions: {batch["positions"]}')
-            # print(f'&&& batch.cell: {batch["cell"]}')
             # print(f'&&& batch.stress: {batch["stress"]}')
             # print(f'compute_stress: {compute_stress}')
             # for k,v in batch.to_dict().items():
@@ -491,9 +490,7 @@ class MACECalculator(Calculator):
             training=self.use_compile,
         )
         # print(f'&&& batch.positions: {batch["positions"]}')
-        # print(f'&&& batch.cell: {batch["cell"]}')
         # print(f'&&& batch.stress: {batch["stress"]}')
-        # for k,v in batch.to_dict().items():
         #     print(f'&&& batch.to_dict(): {k} {v}')
         # print("=======")
         # print(f'&&& out["forces"]: {out["forces"]}')
@@ -528,7 +525,7 @@ class MACECalculator(Calculator):
         edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
             gbatch,
             radius=4.5, 
-            max_num_neighbors_threshold=20000000, 
+            max_num_neighbors_threshold=float('inf'), 
             pbc=[True, True, True]
         )
 
