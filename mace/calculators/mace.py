@@ -74,6 +74,7 @@ class MACECalculator(Calculator):
     ):
         Calculator.__init__(self, **kwargs)
         self.device = device
+        self.dtype=None
         if enable_cueq:
             assert model_type == "MACE", "CuEq only supports MACE models"
             compile_mode = None
@@ -211,6 +212,7 @@ class MACECalculator(Calculator):
                 f"No dtype selected, switching to {model_dtype} to match model dtype."
             )
             default_dtype = model_dtype
+            self.dtype = torch.float64 if model_dtype == "float64" else torch.float32
         if model_dtype != default_dtype:
             print(
                 f"Default dtype {default_dtype} does not match model dtype {model_dtype}, converting models to {default_dtype}."
@@ -526,7 +528,8 @@ class MACECalculator(Calculator):
             gbatch,
             radius=4.5, 
             max_num_neighbors_threshold=float('inf'), 
-            pbc=[True, True, True]
+            pbc=[True, True, True], 
+            dtype=self.dtype
         )
 
         tmp = edge_indices[0].clone()
@@ -546,7 +549,7 @@ class MACECalculator(Calculator):
             batch = gbatch["batch"],
             ptr = gbatch["ptr"],
             edge_index = edge_indices,
-            unit_shifts = cell_offsets.to(torch.float64),
+            unit_shifts = cell_offsets,
             node_attrs = one_hot,
         ) 
 
