@@ -212,7 +212,6 @@ class MACECalculator(Calculator):
                 f"No dtype selected, switching to {model_dtype} to match model dtype."
             )
             default_dtype = model_dtype
-            self.dtype = torch.float64 if model_dtype == "float64" else torch.float32
         if model_dtype != default_dtype:
             print(
                 f"Default dtype {default_dtype} does not match model dtype {model_dtype}, converting models to {default_dtype}."
@@ -225,6 +224,8 @@ class MACECalculator(Calculator):
         for model in self.models:
             for param in model.parameters():
                 param.requires_grad = False
+
+        self.dtype = torch.float64 if default_dtype == "float64" else torch.float32
 
     def _create_result_tensors(
         self, model_type: str, num_models: int, num_atoms: int
@@ -507,6 +508,9 @@ class MACECalculator(Calculator):
         return predictions
 
     def fast_predict(self, gbatch, compute_stress=False):
+        gbatch.pos = gbatch.pos.to(self.dtype)
+        gbatch.cell = gbatch.cell.to(self.dtype)
+
         predictions = {'energy': [], 'forces': []}
         batch_base = self.convert_batch(gbatch)
         out = self.models[0](
@@ -514,10 +518,10 @@ class MACECalculator(Calculator):
             compute_stress=compute_stress, # TODO: DO WE NEED TO COMPUTE STRESS?
             training=self.use_compile,
         )
-        predictions["energy"] = out["energy"].unsqueeze(-1).detach()
-        predictions["forces"] = out["forces"].detach()
+        predictions["energy"] = out["energy"].unsqueeze(-1).detach().to(torch.float64)
+        predictions["forces"] = out["forces"].detach().to(torch.float64)
         if compute_stress:
-            predictions["stress"] = out["stress"].detach()
+            predictions["stress"] = out["stress"].detach().to(torch.float64)
 
         return predictions
 
