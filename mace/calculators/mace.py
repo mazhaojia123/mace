@@ -515,7 +515,7 @@ class MACECalculator(Calculator):
         batch_base = self.convert_batch(gbatch)
         out = self.models[0](
             batch_base.to_dict(),
-            compute_stress=compute_stress, # TODO: DO WE NEED TO COMPUTE STRESS?
+            compute_stress=compute_stress,
             training=self.use_compile,
         )
         predictions["energy"] = out["energy"].unsqueeze(-1).detach().to(torch.float64)
