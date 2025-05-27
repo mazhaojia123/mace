@@ -586,6 +586,7 @@ def test_calculator_descriptor(fitting_configs, trained_equivariant_model):
     assert not np.allclose(desc, desc_rotated, atol=1e-6)
 
 
+@pytest.mark.skipif(not CUET_AVAILABLE, reason="cuequivariance not installed")
 def test_calculator_descriptor_cueq(fitting_configs, trained_equivariant_model_cueq):
     at = fitting_configs[2].copy()
     at_rotated = fitting_configs[2].copy()
@@ -674,3 +675,15 @@ def test_mace_off_cueq(model="medium", device="cpu"):
     E = atoms.get_potential_energy()
 
     assert np.allclose(E, -2081.116128586803, atol=1e-9)
+
+
+def test_mace_mp_stresses(model="medium", device="cpu"):
+    atoms = build.bulk("Al", "fcc", a=4.05, cubic=True)
+    atoms = atoms.repeat((2, 2, 2))
+    mace_mp_model = mace_mp(model=model, device=device, compute_atomic_stresses=True)
+    atoms.set_calculator(mace_mp_model)
+    stress = atoms.get_stress()
+    stresses = atoms.get_stresses()
+    assert stress.shape == (6,)
+    assert stresses.shape == (32, 6)
+    assert np.allclose(stress, stresses.sum(axis=0), atol=1e-6)
