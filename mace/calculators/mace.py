@@ -34,6 +34,8 @@ from mace.tools import (
     to_one_hot,
 )
 
+import time
+
 
 def get_model_dtype(model: torch.nn.Module) -> torch.dtype:
     """Get the dtype of the model"""
@@ -250,6 +252,9 @@ class MACECalculator(Calculator):
                 param.requires_grad = False
 
         self.dtype = torch.float64 if default_dtype == "float64" else torch.float32
+        
+        self.model_time = 0.0
+        self.calc_time = 0.0
 
     def _create_result_tensors(
         self, model_type: str, num_models: int, num_atoms: int
@@ -320,8 +325,8 @@ class MACECalculator(Calculator):
         :return:
         """
         # call to base-class to set atoms attribute
+        calc_start_t = time.perf_counter()
         Calculator.calculate(self, atoms)
-        # print(f'@@@File: {__file__}, atoms.arrays.position: {atoms.arrays["positions"]}')
 
         batch_base = self._atoms_to_batch(atoms)
 
@@ -332,7 +337,6 @@ class MACECalculator(Calculator):
             node_e0 = self.models[0].atomic_energies_fn(batch["node_attrs"])[
                 num_atoms_arange, node_heads
             ]
-            # print(f'@@@File: {__file__}, node_e0: {node_e0.cpu().numpy()}')
             compute_stress = not self.use_compile
         else:
             compute_stress = False
@@ -344,6 +348,7 @@ class MACECalculator(Calculator):
             batch = self._clone_batch(batch_base)
             # print(f'@@@File: {__file__}, batch.to_dict(): {batch.to_dict()}')
             # set_seed(0)
+            model_start_t = time.perf_counter()
             out = model(
                 batch.to_dict(),
                 compute_stress=compute_stress,
@@ -351,6 +356,8 @@ class MACECalculator(Calculator):
                 compute_edge_forces=self.compute_atomic_stresses,
                 compute_atomic_stresses=self.compute_atomic_stresses,
             )
+            model_end_t = time.perf_counter()
+            self.model_time += (model_end_t - model_start_t)
             # print(f'&&& batch.positions: {batch["positions"]}')
             # print(f'&&& batch.stress: {batch["stress"]}')
             # print(f'compute_stress: {compute_stress}')
@@ -447,6 +454,9 @@ class MACECalculator(Calculator):
                     .cpu()
                     .numpy()
                 )
+        
+        calc_end_t = time.perf_counter()
+        self.calc_time += (calc_end_t - calc_start_t)
 
     def get_hessian(self, atoms=None):
         if atoms is None and self.atoms is None:
@@ -586,10 +596,11 @@ class MACECalculator(Calculator):
 
     def convert_batch(self, gbatch): 
         # from fairchem.core.common.utils import radius_graph_pbc, radius_graph_pbc_mem_effi
-        from batchopt import radius_graph_pbc_cuda
+        # from batchopt import radius_graph_pbc_cuda
         # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_mem_effi(
-        # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
-        edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
+        from batchopt.pbc_graph_legacy import radius_graph_pbc
+        edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
+        # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
             gbatch,
             radius=4.5, 
             max_num_neighbors_threshold=float('inf'), 
