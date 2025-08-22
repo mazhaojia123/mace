@@ -595,12 +595,11 @@ class MACECalculator(Calculator):
 
 
     def convert_batch(self, gbatch): 
-        # from fairchem.core.common.utils import radius_graph_pbc, radius_graph_pbc_mem_effi
-        # from batchopt import radius_graph_pbc_cuda
+        from batchopt import radius_graph_pbc_cuda
         # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_mem_effi(
-        from batchopt.pbc_graph_legacy import radius_graph_pbc
-        edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
-        # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
+        # from batchopt.pbc_graph_legacy import radius_graph_pbc
+        # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
+        edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
             gbatch,
             radius=4.5, 
             max_num_neighbors_threshold=float('inf'), 
