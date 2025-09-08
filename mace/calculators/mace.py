@@ -36,6 +36,8 @@ from mace.tools import (
 
 import time
 
+# Import graph construction kernels
+
 
 def get_model_dtype(model: torch.nn.Module) -> torch.dtype:
     """Get the dtype of the model"""
@@ -595,18 +597,35 @@ class MACECalculator(Calculator):
 
 
     def convert_batch(self, gbatch): 
-        # from fairchem.core.common.utils import radius_graph_pbc, radius_graph_pbc_mem_effi
-        # from batchopt import radius_graph_pbc_cuda
-        # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_mem_effi(
-        from batchopt.pbc_graph_legacy import radius_graph_pbc
-        edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
-        # edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
-            gbatch,
-            radius=4.5, 
-            max_num_neighbors_threshold=float('inf'), 
-            pbc=[True, True, True], 
-            dtype=self.dtype
-        )
+        # Select kernel based on number of atoms
+        # Use natoms for proper per-system atom count in batched data
+        if hasattr(gbatch, 'natoms') and gbatch.natoms is not None:
+            # For batched data, use the maximum atoms in any single system
+            max_atoms_per_system = gbatch.natoms.max().item()
+        else:
+            # Fallback: assume single system, use total atom count
+            max_atoms_per_system = gbatch.pos.shape[0]
+        
+        if max_atoms_per_system < 200:
+            # Use legacy kernel for smaller systems
+            from batchopt.pbc_graph_legacy import radius_graph_pbc
+            edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
+                gbatch,
+                radius=4.5, 
+                max_num_neighbors_threshold=float('inf'), 
+                pbc=[True, True, True], 
+                dtype=self.dtype
+            )
+        else:
+            # Use CUDA kernel for larger systems
+            from batchopt import radius_graph_pbc_cuda
+            edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
+                gbatch,
+                radius=4.5, 
+                max_num_neighbors_threshold=float('inf'), 
+                pbc=[True, True, True], 
+                dtype=self.dtype
+            )
 
         tmp = edge_indices[0].clone()
         edge_indices[0] = edge_indices[1]
