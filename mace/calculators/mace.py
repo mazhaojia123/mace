@@ -78,11 +78,13 @@ class MACECalculator(Calculator):
         compile_mode=None,
         fullgraph=True,
         enable_cueq=False,
+        use_legacy_pbc_graph=False,
         **kwargs,
     ):
         Calculator.__init__(self, **kwargs)
         self.device = device
         self.dtype=None
+        self.use_legacy_pbc_graph = use_legacy_pbc_graph
         if enable_cueq:
             assert model_type == "MACE", "CuEq only supports MACE models"
             compile_mode = None
@@ -606,33 +608,35 @@ class MACECalculator(Calculator):
             # Fallback: assume single system, use total atom count
             max_atoms_per_system = gbatch.pos.shape[0]
         
-        # if max_atoms_per_system < 200:
-        #     # Use legacy kernel for smaller systems
-        #     from batchopt.pbc_graph_legacy import radius_graph_pbc
-        #     edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
-        #         gbatch,
-        #         radius=4.5, 
-        #         max_num_neighbors_threshold=float('inf'), 
-        #         pbc=[True, True, True], 
-        #         dtype=self.dtype
-        #     )
-        # else:
-        #     # Use CUDA kernel for larger systems
-        #     from batchopt import radius_graph_pbc_cuda
-        #     edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
-        #         gbatch,
-        #         radius=4.5, 
-        #         max_num_neighbors_threshold=float('inf'), 
-        #         pbc=[True, True, True], 
-        #         dtype=self.dtype
-        #     )
-        from batchopt import radius_graph_pbc_outer_cuda
-        edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_outer_cuda(
-            gbatch,
-            radius=4.5, 
-            pbc=[True, True, True], 
-            dtype=self.dtype
-        )
+        if self.use_legacy_pbc_graph:
+            # Use legacy kernel with size-based selection
+            if max_atoms_per_system < 200:
+                from batchopt.pbc_graph_legacy import radius_graph_pbc
+                edge_indices, cell_offsets, num_neighbors = radius_graph_pbc(
+                    gbatch,
+                    radius=4.5, 
+                    max_num_neighbors_threshold=float('inf'), 
+                    pbc=[True, True, True], 
+                    dtype=self.dtype
+                )
+            else:
+                from batchopt import radius_graph_pbc_cuda
+                edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_cuda(
+                    gbatch,
+                    radius=4.5, 
+                    max_num_neighbors_threshold=float('inf'), 
+                    pbc=[True, True, True], 
+                    dtype=self.dtype
+                )
+        else:
+            # Default: use optimized outer kernel
+            from batchopt import radius_graph_pbc_outer_cuda
+            edge_indices, cell_offsets, num_neighbors = radius_graph_pbc_outer_cuda(
+                gbatch,
+                radius=4.5, 
+                pbc=[True, True, True], 
+                dtype=self.dtype
+            )
 
         tmp = edge_indices[0].clone()
         edge_indices[0] = edge_indices[1]
